@@ -2,6 +2,10 @@
 import { Sequelize, DataTypes } from "sequelize";
 import OpenAI from "openai";
 
+export const config = {
+  runtime: "nodejs",
+};
+
 // 🔹 复用数据库连接（避免 serverless 每次 cold start 新建连接）
 let sequelize;
 if (!global.sequelize) {
