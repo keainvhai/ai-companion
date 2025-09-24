@@ -2,56 +2,65 @@
 import { Sequelize, DataTypes } from "sequelize";
 import OpenAI from "openai";
 
-// 初始化数据库连接（保证复用，避免每次新建连接）
-const sequelize = new Sequelize(
-  process.env.DB_NAME,
-  process.env.DB_USER,
-  process.env.DB_PASS,
-  {
-    host: process.env.DB_HOST,
-    port: process.env.DB_PORT,
-    dialect: "mysql",
-    logging: false,
-    dialectOptions: {
-      ssl: { require: true, rejectUnauthorized: false }, // Aiven 必须开 SSL
+// 🔹 复用数据库连接（避免 serverless 每次 cold start 新建连接）
+let sequelize;
+if (!global.sequelize) {
+  global.sequelize = new Sequelize(
+    process.env.DB_NAME,
+    process.env.DB_USER,
+    process.env.DB_PASS,
+    {
+      host: process.env.DB_HOST,
+      port: process.env.DB_PORT,
+      dialect: "mysql",
+      logging: false,
+      dialectOptions: {
+        ssl: { require: true, rejectUnauthorized: false },
+      },
+    }
+  );
+}
+sequelize = global.sequelize;
+
+// 🔹 定义模型（确保只定义一次）
+let CompanionMessage;
+if (!global.CompanionMessage) {
+  global.CompanionMessage = sequelize.define(
+    "CompanionMessage",
+    {
+      sessionId: { type: DataTypes.STRING, allowNull: false },
+      userId: { type: DataTypes.INTEGER, allowNull: true },
+      role: { type: DataTypes.ENUM("user", "assistant"), allowNull: false },
+      content: { type: DataTypes.TEXT("long"), allowNull: false },
+      mood: { type: DataTypes.STRING, allowNull: true },
     },
-  }
-);
+    {
+      tableName: "CompanionMessages",
+      freezeTableName: true,
+      timestamps: true,
+    }
+  );
+}
+CompanionMessage = global.CompanionMessage;
 
-// 定义模型（等价于 models/CompanionMessage.js）
-const CompanionMessage = sequelize.define(
-  "CompanionMessage",
-  {
-    sessionId: { type: DataTypes.STRING, allowNull: false },
-    userId: { type: DataTypes.INTEGER, allowNull: true },
-    role: { type: DataTypes.ENUM("user", "assistant"), allowNull: false },
-    content: { type: DataTypes.TEXT("long"), allowNull: false },
-    mood: { type: DataTypes.STRING, allowNull: true },
-  },
-  {
-    tableName: "CompanionMessages",
-    freezeTableName: true,
-    timestamps: true,
-  }
-);
-
-const openai = new OpenAI({ apiKey: process.env.API_KEY });
+// 🔹 OpenAI 客户端
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY || process.env.API_KEY,
+});
 
 export default async function handler(req, res) {
   if (req.method === "POST") {
-    // 🔹 处理聊天请求
     try {
       const { sessionId, messages } = req.body;
 
       if (!sessionId) {
         return res.status(400).json({ error: "sessionId is required." });
       }
-
       if (!messages || !Array.isArray(messages) || messages.length === 0) {
         return res.status(400).json({ error: "Empty or invalid messages." });
       }
 
-      // 📝 最后一条用户消息
+      // 📝 获取最后一条用户消息
       const lastUserPrompt = messages
         .filter((m) => m.role === "user" && m.content?.trim())
         .map((m) => m.content.trim())
@@ -75,8 +84,17 @@ export default async function handler(req, res) {
           {
             role: "system",
             content: `
-You are a warm, empathetic AI assistant embedded in a public-interest platform that helps people affected by online harm.
-Tone: Always caring, calm, and emotionally supportive.`,
+You are a warm, empathetic AI assistant embedded in a public-interest platform that helps people affected by online harm, especially doxxing.
+
+Your primary role is to provide emotional support and helpful information in a respectful and non-judgmental way.
+
+Important Guidelines:
+- Be a good listener first. Let the user express their feelings safely.
+- Respond with warmth and validation before giving suggestions.
+- Make clear that you are **not a lawyer** and cannot provide official legal advice.
+- Prioritize emotional safety above all.
+Tone: Always caring, calm, and emotionally supportive.
+`,
           },
           ...messages,
         ],
@@ -84,7 +102,7 @@ Tone: Always caring, calm, and emotionally supportive.`,
 
       const reply = completion.choices[0].message.content;
 
-      // 🎯 情绪检测
+      // 🎯 情绪分类
       let mood = "neutral";
       try {
         const moodCompletion = await openai.chat.completions.create({
@@ -92,7 +110,7 @@ Tone: Always caring, calm, and emotionally supportive.`,
           messages: [
             {
               role: "system",
-              content: `Classify reply as: "neutral", "happy", "sad", "caring".`,
+              content: `Classify reply as: "neutral", "happy", "sad", "caring", Only return one word, no explanation.`,
             },
             { role: "user", content: reply },
           ],
@@ -121,10 +139,8 @@ Tone: Always caring, calm, and emotionally supportive.`,
   }
 
   if (req.method === "GET") {
-    // 🔹 获取某个 session 的完整对话
     try {
       const { sessionId } = req.query;
-
       if (!sessionId) {
         return res.status(400).json({ error: "sessionId is required." });
       }
