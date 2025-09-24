@@ -1,58 +1,53 @@
-// api/companion.js
-import { Sequelize, DataTypes } from "sequelize";
-import OpenAI from "openai";
+const { Sequelize, DataTypes } = require("sequelize");
+const OpenAI = require("openai");
 
-export const config = {
-  runtime: "nodejs",
-};
+module.exports = async (req, res) => {
+  // 🔹 初始化数据库连接（只初始化一次，避免冷启动重复连接）
+  if (!global.sequelize) {
+    global.sequelize = new Sequelize(
+      process.env.DB_NAME,
+      process.env.DB_USER,
+      process.env.DB_PASS,
+      {
+        host: process.env.DB_HOST,
+        port: process.env.DB_PORT,
+        dialect: "mysql",
+        logging: false,
+        dialectOptions: {
+          ssl: { require: true, rejectUnauthorized: false },
+        },
+      }
+    );
+  }
+  const sequelize = global.sequelize;
 
-// 🔹 复用数据库连接（避免 serverless 每次 cold start 新建连接）
-let sequelize;
-if (!global.sequelize) {
-  global.sequelize = new Sequelize(
-    process.env.DB_NAME,
-    process.env.DB_USER,
-    process.env.DB_PASS,
-    {
-      host: process.env.DB_HOST,
-      port: process.env.DB_PORT,
-      dialect: "mysql",
-      logging: false,
-      dialectOptions: {
-        ssl: { require: true, rejectUnauthorized: false },
+  // 🔹 定义模型（确保只定义一次）
+  if (!global.CompanionMessage) {
+    global.CompanionMessage = sequelize.define(
+      "CompanionMessage",
+      {
+        sessionId: { type: DataTypes.STRING, allowNull: false },
+        userId: { type: DataTypes.INTEGER, allowNull: true },
+        role: { type: DataTypes.ENUM("user", "assistant"), allowNull: false },
+        content: { type: DataTypes.TEXT("long"), allowNull: false },
+        mood: { type: DataTypes.STRING, allowNull: true },
       },
-    }
-  );
-}
-sequelize = global.sequelize;
+      {
+        tableName: "CompanionMessages",
+        freezeTableName: true,
+        timestamps: true,
+      }
+    );
+  }
+  const CompanionMessage = global.CompanionMessage;
 
-// 🔹 定义模型（确保只定义一次）
-let CompanionMessage;
-if (!global.CompanionMessage) {
-  global.CompanionMessage = sequelize.define(
-    "CompanionMessage",
-    {
-      sessionId: { type: DataTypes.STRING, allowNull: false },
-      userId: { type: DataTypes.INTEGER, allowNull: true },
-      role: { type: DataTypes.ENUM("user", "assistant"), allowNull: false },
-      content: { type: DataTypes.TEXT("long"), allowNull: false },
-      mood: { type: DataTypes.STRING, allowNull: true },
-    },
-    {
-      tableName: "CompanionMessages",
-      freezeTableName: true,
-      timestamps: true,
-    }
-  );
-}
-CompanionMessage = global.CompanionMessage;
+  // 🔹 OpenAI 客户端
+  const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY || process.env.API_KEY,
+  });
 
-// 🔹 OpenAI 客户端
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || process.env.API_KEY,
-});
+  // ========= 路由逻辑 =========
 
-export default async function handler(req, res) {
   if (req.method === "POST") {
     try {
       const { sessionId, messages } = req.body;
@@ -98,7 +93,7 @@ Important Guidelines:
 - Make clear that you are **not a lawyer** and cannot provide official legal advice.
 - Prioritize emotional safety above all.
 Tone: Always caring, calm, and emotionally supportive.
-`,
+            `,
           },
           ...messages,
         ],
@@ -114,7 +109,7 @@ Tone: Always caring, calm, and emotionally supportive.
           messages: [
             {
               role: "system",
-              content: `Classify reply as: "neutral", "happy", "sad", "caring", Only return one word, no explanation.`,
+              content: `Classify reply as: "neutral", "happy", "sad", "caring". Only return one word, no explanation.`,
             },
             { role: "user", content: reply },
           ],
@@ -164,4 +159,4 @@ Tone: Always caring, calm, and emotionally supportive.
   }
 
   return res.status(405).json({ error: "Method not allowed" });
-}
+};
