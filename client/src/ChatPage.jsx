@@ -20,7 +20,7 @@ const ChatPage = () => {
     const fetchSession = async () => {
       try {
         const res = await axios.get(
-          `${import.meta.env.VITE_API_URL}/companion/session/${sessionId}`
+          `${import.meta.env.VITE_API_URL}/api/companion/session/${sessionId}`
         );
         setMessages(
           res.data.length > 0
@@ -64,7 +64,7 @@ const ChatPage = () => {
 
     try {
       const res = await axios.post(
-        `${import.meta.env.VITE_API_URL}/companion`,
+        `${import.meta.env.VITE_API_URL}/api/companion`,
         {
           sessionId,
           messages: newMessages,
