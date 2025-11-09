@@ -44,14 +44,23 @@ const ChatPage = () => {
 
   const getAvatar = (mood) => {
     switch (mood) {
-      case "happy":
-        return "😀";
-      case "sad":
-        return "😢";
       case "caring":
-        return "🤗";
+        return "🤗"; // 温柔共情
+      case "soothing":
+        return "🫶"; // 安抚、平静
+      case "supportive":
+        return "💪"; // 鼓励、支持
+      case "concerned":
+        return "😟"; // 担心、关切
+      case "hopeful":
+        return "🌈"; // 希望、积极
+      case "curious":
+        return "🤔"; // 轻柔提问
+      case "reassuring":
+        return "😊"; // 安心、安定
+      case "neutral":
       default:
-        return "🙂";
+        return "🙂"; // 默认表情
     }
   };
 
